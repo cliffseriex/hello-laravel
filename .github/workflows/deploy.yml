@@ -28,13 +28,18 @@ jobs:
         fi
         yq eval '.app_name, .environment_name, .ecr_repo_name, .region' .ebconfig.yml
 
-    - name: Read Deployment Configuration Dynamically
+    - name: Read Deployment Configuration
       id: read-config
       run: |
         CONFIG_FILE=".ebconfig.yml"
-        yq eval '. as $item ireduce ({}; . * $item)' $CONFIG_FILE | while IFS="=" read -r key value; do
-          echo "$key=$value" >> $GITHUB_ENV
-        done
+        APP_NAME=$(yq eval '.app_name' $CONFIG_FILE)
+        ENV_NAME=$(yq eval '.environment_name' $CONFIG_FILE)
+        REPO_NAME=$(yq eval '.ecr_repo_name' $CONFIG_FILE)
+        REGION=$(yq eval '.region' $CONFIG_FILE)
+        echo "APP_NAME=$APP_NAME" >> $GITHUB_ENV
+        echo "ENV_NAME=$ENV_NAME" >> $GITHUB_ENV
+        echo "REPO_NAME=$REPO_NAME" >> $GITHUB_ENV
+        echo "REGION=$REGION" >> $GITHUB_ENV
 
     - name: Configure AWS credentials
       uses: aws-actions/configure-aws-credentials@v3
