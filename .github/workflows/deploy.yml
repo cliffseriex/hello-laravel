@@ -1,4 +1,4 @@
-name: Deploy to Elastic Beanstalk
+name: Dynamic Deployment to Elastic Beanstalk
 
 on:
   push:
@@ -12,7 +12,6 @@ jobs:
 
     env:
       AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
-      S3_BUCKET: tf-infra-aws
 
     steps:
     - name: Checkout code
@@ -24,6 +23,13 @@ jobs:
         wget https://github.com/mikefarah/yq/releases/download/v4.13.3/yq_linux_amd64 -O yq
         chmod +x yq
         sudo mv yq /usr/local/bin/yq
+
+    - name: Validate Deployment Configuration
+      run: |
+        if [ ! -f ".ebconfig.yml" ]; then
+          echo "Configuration file .ebconfig.yml not found!" && exit 1
+        fi
+        yq eval '.app_name, .environment_name, .ecr_repo_name, .region' .ebconfig.yml
 
     - name: Read Deployment Configuration
       id: read-config
@@ -38,52 +44,40 @@ jobs:
         echo "REPO_NAME=$REPO_NAME" >> $GITHUB_ENV
         echo "REGION=$REGION" >> $GITHUB_ENV
 
-    - name: Generate Version Label
+    - name: Generate Application Version Label
       run: |
-        VERSION_LABEL=$(date +%Y%m%d%H%M%S)-${{ github.sha }}
+        VERSION_LABEL=$(date +%Y%m%d%H%M%S)-${{ github.sha::8 }}
         echo "VERSION_LABEL=$VERSION_LABEL" >> $GITHUB_ENV
+        echo "Generated Version Label: $VERSION_LABEL"
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v3
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.REGION }}
 
     - name: Log in to Amazon ECR
       run: |
         aws ecr get-login-password --region $REGION | \
         docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com
 
-    - name: Build and Tag Docker Image
+    - name: Build and tag Docker image
       run: |
         docker build -t $REPO_NAME:$VERSION_LABEL .
         docker tag $REPO_NAME:$VERSION_LABEL $AWS_ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com/$REPO_NAME:$VERSION_LABEL
 
-    - name: Push Docker Image to ECR
+    - name: Push Docker image to ECR
       run: |
         docker push $AWS_ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com/$REPO_NAME:$VERSION_LABEL
-
-    - name: Generate Dockerrun.aws.json
-      run: |
-        cat <<EOF > Dockerrun.aws.json
-        {
-          "AWSEBDockerrunVersion": "1",
-          "Image": {
-            "Name": "${AWS_ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/${REPO_NAME}:${VERSION_LABEL}",
-            "Update": "true"
-          },
-          "Ports": [
-            {
-              "ContainerPort": "8005"
-            }
-          ]
-        }
-        EOF
-
-    - name: Upload Dockerrun.aws.json to S3
-      run: |
-        aws s3 cp Dockerrun.aws.json s3://${S3_BUCKET}/docker-app-${VERSION_LABEL}.zip
 
     - name: Create Elastic Beanstalk Application Version
       run: |
         aws elasticbeanstalk create-application-version \
           --application-name "$APP_NAME" \
           --version-label "$VERSION_LABEL" \
-          --source-bundle S3Bucket=${S3_BUCKET},S3Key=docker-app-${VERSION_LABEL}.zip
+          --source-bundle S3Bucket=elasticbeanstalk-$REGION-$AWS_ACCOUNT_ID,S3Key=docker-app-$VERSION_LABEL.zip \
+          --auto-create-application
 
     - name: Update Elastic Beanstalk Environment
       run: |
@@ -91,3 +85,16 @@ jobs:
           --application-name "$APP_NAME" \
           --environment-name "$ENV_NAME" \
           --version-label "$VERSION_LABEL"
+
+    - name: Clean Up Old Versions
+      if: github.ref_name == 'main'
+      run: |
+        aws elasticbeanstalk describe-application-versions \
+          --application-name "$APP_NAME" --query 'ApplicationVersions[?VersionLabel!=`'"$VERSION_LABEL"'`].VersionLabel' --output text | \
+        while read -r OLD_VERSION; do
+          echo "Deleting old version: $OLD_VERSION"
+          aws elasticbeanstalk delete-application-version \
+            --application-name "$APP_NAME" \
+            --version-label "$OLD_VERSION" \
+            --delete-source-bundle || true
+        done
