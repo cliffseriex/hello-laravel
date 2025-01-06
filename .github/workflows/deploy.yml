@@ -3,8 +3,8 @@ name: Dynamic Deployment to Elastic Beanstalk
 on:
   push:
     branches:
-      - main  # Trigger on main branch push
-      - staging  # Trigger on staging branch push
+      - main
+      - staging
 
 jobs:
   deploy:
@@ -17,8 +17,9 @@ jobs:
     - name: Install yq
       run: |
         sudo apt-get update && sudo apt-get install -y jq
-        wget https://github.com/mikefarah/yq/releases/download/v4.13.3/yq_linux_amd64 -O /usr/bin/yq
-        chmod +x /usr/bin/yq
+        wget https://github.com/mikefarah/yq/releases/download/v4.13.3/yq_linux_amd64 -O yq
+        chmod +x yq
+        sudo mv yq /usr/local/bin/yq
 
     - name: Validate Deployment Configuration
       run: |
