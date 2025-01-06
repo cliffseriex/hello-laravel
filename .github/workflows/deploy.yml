@@ -76,7 +76,7 @@ jobs:
         aws elasticbeanstalk create-application-version \
           --application-name "$APP_NAME" \
           --version-label "$VERSION_LABEL" \
-          --source-bundle S3Bucket=elasticbeanstalk-$REGION-$AWS_ACCOUNT_ID,S3Key=docker-app-$VERSION_LABEL.zip \
+          --source-bundle S3Bucket=elasticbeanstalk-$REGION-$AWS_ACCOUNT_ID,S3Key=docker-app-$VERSION_LABEL.zip \ 
           --auto-create-application
 
     - name: Update Elastic Beanstalk Environment
