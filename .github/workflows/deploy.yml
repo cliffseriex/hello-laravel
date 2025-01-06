@@ -1,51 +1,71 @@
-name: Update Elastic Beanstalk Application
+name: Dynamic Deployment to Elastic Beanstalk
 
 on:
   push:
     branches:
-      - main  # Trigger on main branch push (Production)
-      - staging  # Trigger on staging branch push (Staging)
+      - main  # Trigger on main branch push
+      - staging  # Trigger on staging branch push
 
 jobs:
-  update-eb-app:
+  deploy:
     runs-on: ubuntu-latest
-
-    env:
-      AWS_REGION: us-east-1  # Replace with your AWS region
-      AWS_ACCOUNT_ID: 128282223716  # Replace with your AWS Account ID
-      ECR_REPO_NAME: cartflow  # Name of your ECR repository
-      EB_ENV_NAME: cartflow-env
 
     steps:
     - name: Checkout code
       uses: actions/checkout@v3
+
+    - name: Install yq
+      run: |
+        sudo apt-get update && sudo apt-get install -y jq
+        wget https://github.com/mikefarah/yq/releases/download/v4.13.3/yq_linux_amd64 -O /usr/bin/yq
+        chmod +x /usr/bin/yq
+
+    - name: Validate Deployment Configuration
+      run: |
+        if [ ! -f ".ebconfig.yml" ]; then
+          echo "Configuration file .ebconfig.yml not found!" && exit 1
+        fi
+        yq eval '.app_name, .environment_name, .ecr_repo_name, .region' .ebconfig.yml
+
+    - name: Read Deployment Configuration
+      id: read-config
+      run: |
+        CONFIG_FILE=".ebconfig.yml"
+        APP_NAME=$(yq '.app_name' $CONFIG_FILE)
+        ENV_NAME=$(yq '.environment_name' $CONFIG_FILE)
+        REPO_NAME=$(yq '.ecr_repo_name' $CONFIG_FILE)
+        REGION=$(yq '.region' $CONFIG_FILE)
+        echo "APP_NAME=$APP_NAME" >> $GITHUB_ENV
+        echo "ENV_NAME=$ENV_NAME" >> $GITHUB_ENV
+        echo "REPO_NAME=$REPO_NAME" >> $GITHUB_ENV
+        echo "REGION=$REGION" >> $GITHUB_ENV
 
     - name: Configure AWS credentials
       uses: aws-actions/configure-aws-credentials@v3
       with:
         aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
         aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-        aws-region: ${{ env.AWS_REGION }}
+        aws-region: ${{ env.REGION }}
 
     - name: Log in to Amazon ECR
       run: |
-        aws ecr get-login-password --region $AWS_REGION | \
-        docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com
+        aws ecr get-login-password --region $REGION | \
+        docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com
 
     - name: Build and tag Docker image
       run: |
         IMAGE_TAG=$(date +%Y%m%d%H%M%S)
         echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV
-        docker build -t $ECR_REPO_NAME:$IMAGE_TAG .
-        docker tag $ECR_REPO_NAME:$IMAGE_TAG $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPO_NAME:$IMAGE_TAG
+        docker build -t $REPO_NAME:$IMAGE_TAG .
+        docker tag $REPO_NAME:$IMAGE_TAG $AWS_ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com/$REPO_NAME:$IMAGE_TAG
 
     - name: Push Docker image to ECR
       run: |
-        docker push $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPO_NAME:$IMAGE_TAG
+        docker push $AWS_ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com/$REPO_NAME:$IMAGE_TAG
 
-    - name: Update Elastic Beanstalk Application
+    - name: Update Elastic Beanstalk Environment
       run: |
         aws elasticbeanstalk update-environment \
-          --application-name "${{ github.event.repository.name }}" \
-          --environment-name $EB_ENV_NAME \
-          --version-label $IMAGE_TAG
+          --application-name "$APP_NAME" \
+          --environment-name "$ENV_NAME" \
+          --version-label "$IMAGE_TAG"
