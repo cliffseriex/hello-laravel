@@ -12,6 +12,7 @@ jobs:
 
     env:
       AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
+      S3_BUCKET: tf-aws-infra  # Custom S3 bucket name
 
     steps:
     - name: Checkout code
@@ -72,13 +73,33 @@ jobs:
       run: |
         docker push $AWS_ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com/$REPO_NAME:$VERSION_LABEL
 
+    - name: Generate Dockerrun.aws.json
+      run: |
+        cat <<EOF > Dockerrun.aws.json
+        {
+          "AWSEBDockerrunVersion": "1",
+          "Image": {
+            "Name": "$AWS_ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com/$REPO_NAME:$VERSION_LABEL",
+            "Update": "true"
+          },
+          "Ports": [
+            {
+              "ContainerPort": "8005"
+            }
+          ]
+        }
+        EOF
+
+    - name: Upload Dockerrun.aws.json to S3
+      run: |
+        aws s3 cp Dockerrun.aws.json s3://$S3_BUCKET/docker-app-$VERSION_LABEL.zip
+
     - name: Create Elastic Beanstalk Application Version
       run: |
         aws elasticbeanstalk create-application-version \
           --application-name "$APP_NAME" \
           --version-label "$VERSION_LABEL" \
-          --source-bundle S3Bucket=elasticbeanstalk-$REGION-$AWS_ACCOUNT_ID,S3Key=docker-app-$VERSION_LABEL.zip \
-          --auto-create-application
+          --source-bundle S3Bucket=$S3_BUCKET,S3Key=docker-app-$VERSION_LABEL.zip
 
     - name: Update Elastic Beanstalk Environment
       run: |
