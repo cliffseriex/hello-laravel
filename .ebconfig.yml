@@ -2,3 +2,9 @@ app_name: cartflow  # Elastic Beanstalk application name
 environment_name: cartflow-stag  # Elastic Beanstalk environment name
 ecr_repo_name: cartflow  # ECR repository name
 region: us-east-1  # AWS region
+
+DB_HOST=postgres
+DB_PORT=5432
+DB_DATABASE=cartflow_db
+DB_USERNAME=cartflow_user
+DB_PASSWORD=cartflow_pass
