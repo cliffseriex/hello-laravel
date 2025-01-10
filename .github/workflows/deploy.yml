@@ -22,9 +22,8 @@ jobs:
     - name: Install yq
       run: |
         sudo apt-get update && sudo apt-get install -y jq
-        wget https://github.com/mikefarah/yq/releases/download/v4.13.3/yq_linux_amd64 -O yq
-        chmod +x yq
-        sudo mv yq /usr/local/bin/yq
+        wget https://github.com/mikefarah/yq/releases/download/v4.13.3/yq_linux_amd64 -O /usr/local/bin/yq
+        chmod +x /usr/local/bin/yq        
 
     - name: Validate Deployment Configuration
       run: |
@@ -45,13 +44,18 @@ jobs:
         echo "ENV_NAME=$ENV_NAME" >> $GITHUB_ENV
         echo "REPO_NAME=$REPO_NAME" >> $GITHUB_ENV
         echo "REGION=$REGION" >> $GITHUB_ENV
-        
+
     - name: Parse Environment Variables from .ebconfig.yml
       id: parse-env-vars
       run: |
-        ENV_VARS=$(yq eval '.environment_variables | to_entries | .[] | "Namespace=aws:elasticbeanstalk:application:environment,OptionName=\(.key),Value=\(.value)"' .ebconfig.yml | tr '\n' ' ')
+        ENV_VARS=$(yq eval -o=json '.environment_variables' .ebconfig.yml | jq -r 'to_entries | .[] | "Namespace=aws:elasticbeanstalk:application:environment,OptionName=\(.key),Value=\(.value)"' | tr '\n' ' ')
         echo "ENV_VARS=$ENV_VARS" >> $GITHUB_ENV
         echo "Parsed Environment Variables:"
+        echo "$ENV_VARS"
+
+    - name: Debug Environment Variables
+      run: |
+        echo "Environment Variables:"
         echo "$ENV_VARS"
 
     - name: Generate Application Version Label
@@ -116,7 +120,6 @@ jobs:
           --application-name "$APP_NAME" \
           --environment-name "$ENV_NAME" \
           --version-label "$VERSION_LABEL" \
-          --setenv foo=bar
           --option-settings $ENV_VARS
 
 #    - name: Clean Up Old Versions
