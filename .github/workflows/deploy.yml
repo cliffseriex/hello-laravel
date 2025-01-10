@@ -45,12 +45,11 @@ jobs:
         echo "ENV_NAME=$ENV_NAME" >> $GITHUB_ENV
         echo "REPO_NAME=$REPO_NAME" >> $GITHUB_ENV
         echo "REGION=$REGION" >> $GITHUB_ENV
-
+        
     - name: Parse Environment Variables from .ebconfig.yml
       id: parse-env-vars
       run: |
-        CONFIG_FILE=".ebconfig.yml"
-        ENV_VARS=$(yq eval '.environment_variables | to_entries | .[] | "Namespace=aws:elasticbeanstalk:application:environment,OptionName=\(.key),Value=\(.value)"' $CONFIG_FILE)
+        ENV_VARS=$(yq eval '.environment_variables | to_entries | .[] | "Namespace=aws:elasticbeanstalk:application:environment,OptionName=\(.key),Value=\(.value)"' .ebconfig.yml | tr '\n' ' ')
         echo "ENV_VARS=$ENV_VARS" >> $GITHUB_ENV
         echo "Parsed Environment Variables:"
         echo "$ENV_VARS"
