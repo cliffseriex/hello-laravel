@@ -5,14 +5,15 @@ on:
     branches:
       - main
       - staging
- 
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
 
     env:
       AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
-      S3_BUCKET: tf-infra-aws  # Custom S3 bucket name
+      S3_BUCKET: tf-infra-aws
+      REGION: us-east-1
 
     steps:
     - name: Checkout code
@@ -44,6 +45,15 @@ jobs:
         echo "ENV_NAME=$ENV_NAME" >> $GITHUB_ENV
         echo "REPO_NAME=$REPO_NAME" >> $GITHUB_ENV
         echo "REGION=$REGION" >> $GITHUB_ENV
+
+    - name: Parse Environment Variables from .ebconfig.yml
+      id: parse-env-vars
+      run: |
+        CONFIG_FILE=".ebconfig.yml"
+        ENV_VARS=$(yq eval '.environment_variables | to_entries | .[] | "Namespace=aws:elasticbeanstalk:application:environment,OptionName=\(.key),Value=\(.value)"' $CONFIG_FILE)
+        echo "ENV_VARS=$ENV_VARS" >> $GITHUB_ENV
+        echo "Parsed Environment Variables:"
+        echo "$ENV_VARS"
 
     - name: Generate Application Version Label
       run: |
@@ -84,7 +94,7 @@ jobs:
           },
           "Ports": [
             {
-              "ContainerPort": "8000"
+              "ContainerPort": "8005"
             }
           ]
         }
@@ -106,17 +116,18 @@ jobs:
         aws elasticbeanstalk update-environment \
           --application-name "$APP_NAME" \
           --environment-name "$ENV_NAME" \
-          --version-label "$VERSION_LABEL"
+          --version-label "$VERSION_LABEL" \
+          --option-settings $ENV_VARS
 
-    - name: Clean Up Old Versions
-      if: github.ref_name == 'main'
-      run: |
-        aws elasticbeanstalk describe-application-versions \
-          --application-name "$APP_NAME" --query 'ApplicationVersions[?VersionLabel!=`'"$VERSION_LABEL"'`].VersionLabel' --output text | \
-        while read -r OLD_VERSION; do
-          echo "Deleting old version: $OLD_VERSION"
-          aws elasticbeanstalk delete-application-version \
-            --application-name "$APP_NAME" \
-            --version-label "$OLD_VERSION" \
-            --delete-source-bundle || true
-        done
+#    - name: Clean Up Old Versions
+#      if: github.ref_name == 'main'
+#      run: |
+#        aws elasticbeanstalk describe-application-versions \
+#          --application-name "$APP_NAME" --query 'ApplicationVersions[?VersionLabel!=`'"$VERSION_LABEL"'`].VersionLabel' --output text | \
+#        while read -r OLD_VERSION; do
+#          echo "Deleting old version: $OLD_VERSION"
+#          aws elasticbeanstalk delete-application-version \
+#            --application-name "$APP_NAME" \
+#            --version-label "$OLD_VERSION" \
+#            --delete-source-bundle || true
+#        done
